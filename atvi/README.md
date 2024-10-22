@@ -58,6 +58,7 @@ Passos iniciais para configurar um projeto Node.js com TypeScript.
 
     ```bash
     .
+    ├── docs/                # Arquivo com especificações da tarefa
     ├── out/                 # Diretório de arquivos compilados (.js)
     ├── src/                 # Diretório principal do código fonte
     │   ├── app/             # Contém o arquivo index.js, que é o ponto de entrada da aplicação
