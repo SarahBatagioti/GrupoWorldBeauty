@@ -1,54 +1,27 @@
-import { Component } from "react";
+import React from "react";
+import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import BarraNavegacao from "./barraNavegacao";
 import FormularioCadastroCliente from "./Clientes";
 import FormularioCadastroProduto from "./Produtos";
-import Consumos from "./Consumos";
+import FormularioCadastroConsumo from "./Consumos";
 
-type state = {
-    tela: string
-}
+const Roteador: React.FC = () => {
+    const botoes = [
+        { nome: "Clientes", caminho: "/clientes" },
+        { nome: "Produtos", caminho: "/produtos" },
+        { nome: "Consumos", caminho: "/consumos" },
+    ];
 
-export default class Roteador extends Component<{}, state> {
-    constructor(props: {} | Readonly<{}>) {
-        super(props)
-        this.state = {
-            tela: 'Clientes'
-        }
-        this.selecionarView = this.selecionarView.bind(this)
-    }
+    return (
+        <Router>
+            <BarraNavegacao tema="blue" botoes={botoes} />
+            <Routes>
+                <Route path="/clientes" element={<FormularioCadastroCliente tema="blue" />} />
+                <Route path="/produtos" element={<FormularioCadastroProduto tema="blue" />} />
+                <Route path="/consumos" element={<FormularioCadastroConsumo tema="blue" />} />
+            </Routes>
+        </Router>
+    );
+};
 
-    selecionarView(novaTela: string, evento: Event) {
-        evento.preventDefault()
-        console.log(novaTela);
-        this.setState({
-            tela: novaTela
-        })
-    }
-
-    render() {
-        let barraNavegacao = <BarraNavegacao seletorView={this.selecionarView} tema="purple lighten-4" botoes={[ 'Clientes', 'Produtos', 'Consumos']} />
-        if (this.state.tela === 'Clientes') {
-            return (
-                <>
-                    {barraNavegacao}
-                    <FormularioCadastroCliente tema="purple lighten-4" />
-                </>
-            )
-        } else if (this.state.tela === 'Produtos') {
-            return (
-                <>
-                    {barraNavegacao}
-                    <FormularioCadastroProduto tema="purple lighten-4" />
-                </>
-            )
-        } else if (this.state.tela === 'Consumos') {
-            return (
-                <>
-                    {barraNavegacao}
-                    <Consumos tema="purple lighten-4" />
-                </>
-            )
-        }
-
-    }
-}
+export default Roteador;
