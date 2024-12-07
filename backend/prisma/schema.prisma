@@ -1,0 +1,17 @@
+datasource db {
+  provider = "mysql"
+  url      = "mysql://fatec:senha@localhost:3306/wb"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Cliente {
+  id                 Int                @id @default(autoincrement())
+  nome               String
+  sobrenome          String
+  telefone           String
+  email              String
+  genero             String
+}
