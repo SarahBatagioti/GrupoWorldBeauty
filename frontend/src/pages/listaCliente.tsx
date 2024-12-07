@@ -1,18 +1,24 @@
 import React, { useEffect, useState } from "react";
-import {
-    Typography,
-    Button,
-    TextField,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    Grid,
-    FormControl,
-    InputLabel,
-    Select,
-    MenuItem,
-} from "@mui/material";
+import { Accordion, AccordionSummary, AccordionDetails, Typography, List, ListItem, ListItemText, FormControl, InputLabel, Select, MenuItem, Button, TextField, Dialog, DialogActions, DialogContent, DialogTitle, Autocomplete, Grid, Chip } from "@mui/material";
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useTheme } from '@mui/material/styles';
+import { Produto } from "./listaProdutos";
+import { Servico } from "./listaServicos";
+import { SelectChangeEvent } from '@mui/material';
+
+type ProdutoConsumido = {
+    id: number;
+    clienteId: number;
+    produtoId: number;
+    produto: Produto;
+};
+
+type ServicoConsumido = {
+    id: number;
+    clienteId: number;
+    servicoId: number;
+    servico: Servico;
+};
 
 type Cliente = {
     id: number;
@@ -21,23 +27,149 @@ type Cliente = {
     telefone: string;
     email: string;
     genero: string;
+    produtosConsumidos: ProdutoConsumido[];
+    servicosConsumidos: ServicoConsumido[];
 };
 
 interface Props {
     clientes: Cliente[];
+    produtosOptions: Produto[];
+    servicosOptions: Servico[];
     onUpdateClient: (updatedClient: Cliente) => void;
 }
 
+type FilteredClientsByGender = { gender: string; clients: Cliente[] }[];
+
 export default function ListaCliente(props: Props) {
-    const { clientes, onUpdateClient } = props;
+    const { clientes, produtosOptions, servicosOptions, onUpdateClient } = props;
     const theme = useTheme();
+    const [filterOption, setFilterOption] = useState('');
     const [editClient, setEditClient] = useState<Cliente | null>(null);
     const [openEditDialog, setOpenEditDialog] = useState(false);
     const [clientList, setClientList] = useState<Cliente[]>(clientes);
 
     useEffect(() => {
-        setClientList(clientes); // Atualiza a lista de clientes ao receber novos dados
+        setClientList(clientes); // Ensure clientList updates when props.clientes changes
     }, [clientes]);
+
+    const handleFilterChange = (event: SelectChangeEvent<string>) => {
+        setFilterOption(event.target.value);
+    };
+
+    const filterClients = (): Cliente[] | FilteredClientsByGender => {
+        switch (filterOption) {
+            case 'top10Quantidade':
+                return getTop10ClientesPorQuantidade(true, 10);
+            case 'bottom10Quantidade':
+                return getTop10ClientesPorQuantidade(false, 10);
+            case 'maisConsumiramPorValor':
+                return getTop5ClientesPorValor(true, 5);
+            case 'listarPorGenero':
+                const clientsByGender: { [key: string]: Cliente[] } = {};
+                clientList.forEach((cliente: Cliente) => {
+                    const genero = cliente.genero.toString();
+                    if (clientsByGender[genero]) {
+                        clientsByGender[genero].push(cliente);
+                    } else {
+                        clientsByGender[genero] = [cliente];
+                    }
+                });
+                return Object.entries(clientsByGender).map(([gender, clients]) => ({ gender, clients }));
+            default:
+                return clientList;
+        }
+    };
+
+    const getTop10ClientesPorQuantidade = (most: boolean, count: number) => {
+        const clientsWithTotalConsumption = clientList.map((client: Cliente) => {
+            const totalProductsConsumed = client.produtosConsumidos ? client.produtosConsumidos.length : 0;
+            const totalServicesConsumed = client.servicosConsumidos ? client.servicosConsumidos.length : 0;
+            return { ...client, totalProductsConsumed, totalServicesConsumed };
+        });
+
+        clientsWithTotalConsumption.sort((a, b) => {
+            const totalConsumedA = a.totalProductsConsumed + a.totalServicesConsumed;
+            const totalConsumedB = b.totalProductsConsumed + b.totalServicesConsumed;
+            const diff = totalConsumedA - totalConsumedB;
+            return most ? -diff : diff;
+        });
+
+        return clientsWithTotalConsumption.slice(0, count);
+    };
+
+    const getTop5ClientesPorValor = (most: boolean, count: number) => {
+        const clientsWithTotalPrice = clientList.map((client: Cliente) => {
+            const totalPriceProducts = client.produtosConsumidos ? client.produtosConsumidos.reduce((total, produto) => total + (produto.produto.preco || 0), 0) : 0;
+            const totalPriceServices = client.servicosConsumidos ? client.servicosConsumidos.reduce((total, servico) => total + (servico.servico.preco || 0), 0) : 0;
+            const totalPriceConsumed = totalPriceProducts + totalPriceServices;
+            return { ...client, totalPriceConsumed };
+        });
+
+        clientsWithTotalPrice.sort((a, b) => {
+            const diff = a.totalPriceConsumed - b.totalPriceConsumed;
+            return most ? -diff : diff;
+        });
+
+        return clientsWithTotalPrice.slice(0, count);
+    };
+
+    const handleEditClient = (id: number, updatedData: Cliente) => {
+        fetch(`http://localhost:5000/api/clientes/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updatedData)
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to update client');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Client updated:', data);
+
+                const updatedClient = {
+                    ...data,
+                    produtosConsumidos: data.produtosConsumidos?.map((pc: any) => ({
+                        ...pc,
+                        produto: pc.produto || produtosOptions.find(p => p.id === pc.produtoId)
+                    })) || [],
+                    servicosConsumidos: data.servicosConsumidos?.map((sc: any) => ({
+                        ...sc,
+                        servico: sc.servico || servicosOptions.find(s => s.id === sc.servicoId)
+                    })) || []
+                };
+
+                setClientList(prevClients =>
+                    prevClients.map(cliente =>
+                        cliente.id === id ? updatedClient : cliente
+                    )
+                );
+
+                onUpdateClient(updatedClient); // Update parent component
+                setOpenEditDialog(false);
+                setEditClient(null); // Reset the edit client state
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+    };
+
+    const handleDeleteClient = (id: number) => {
+        fetch(`http://localhost:5000/api/clientes/${id}`, {
+            method: 'DELETE'
+        })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Client deleted:', data);
+                setClientList(prevClients =>
+                    prevClients.filter(cliente => cliente.id !== id)
+                );
+            })
+            .catch(error => console.error('Error:', error));
+    };
 
     const handleEditButtonClick = (client: Cliente) => {
         setEditClient(client);
@@ -51,6 +183,7 @@ export default function ListaCliente(props: Props) {
 
     const handleEditDialogSave = () => {
         if (editClient) {
+            console.log('Data being sent to backend:', JSON.stringify(editClient, null, 2));
             handleEditClient(editClient.id, editClient);
         }
     };
@@ -61,126 +194,119 @@ export default function ListaCliente(props: Props) {
         }
     };
 
-    const handleSelectChange = (event: React.ChangeEvent<{ name?: string; value: unknown }>) => {
+    const handleSelectChange = (event: SelectChangeEvent<string>) => {
         const { name, value } = event.target;
-        if (editClient && name) {
-            setEditClient({ ...editClient, [name]: value as string });
+        if (editClient) {
+            setEditClient({ ...editClient, [name]: value });
         }
     };
 
-    const handleEditClient = (id: number, updatedData: Cliente) => {
-        fetch(`http://localhost:5000/api/clientes/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(updatedData),
-        })
-            .then((response) => {
-                if (!response.ok) {
-                    throw new Error('Failed to update client');
-                }
-                return response.json();
-            })
-            .then((data) => {
-                console.log('Client updated:', data);
-
-                setClientList((prevClients) =>
-                    prevClients.map((cliente) => (cliente.id === id ? data : cliente))
-                );
-
-                onUpdateClient(data); // Atualiza o componente pai
-                setOpenEditDialog(false);
-                setEditClient(null); // Limpa o estado de edição
-            })
-            .catch((error) => {
-                console.error('Error:', error);
-            });
+    const handleProdutosChange = (event: any, value: Produto[]) => {
+        if (editClient) {
+            const produtosConsumidos: ProdutoConsumido[] = value.map(produto => ({
+                id: 0, // Assuming you set this to 0 since it's generated by the backend
+                clienteId: editClient.id,
+                produtoId: produto.id,
+                produto: produto,
+            }));
+            setEditClient(prevEditClient => ({
+                ...prevEditClient!,
+                produtosConsumidos: produtosConsumidos,
+            }));
+        }
     };
 
-    const handleDeleteClient = (id: number) => {
-        fetch(`http://localhost:5000/api/clientes/${id}`, {
-            method: 'DELETE',
-        })
-            .then((response) => response.json())
-            .then(() => {
-                setClientList((prevClients) =>
-                    prevClients.filter((cliente) => cliente.id !== id)
-                );
-            })
-            .catch((error) => console.error('Error:', error));
+    const handleServicosChange = (event: any, value: Servico[]) => {
+        if (editClient) {
+            const servicosConsumidos: ServicoConsumido[] = value.map(servico => ({
+                id: 0, // Assuming you set this to 0 since it's generated by the backend
+                clienteId: editClient.id,
+                servicoId: servico.id,
+                servico: servico,
+            }));
+            setEditClient(prevEditClient => ({
+                ...prevEditClient!,
+                servicosConsumidos: servicosConsumidos,
+            }));
+        }
     };
+
+    const filteredClients = filterClients();
 
     return (
         <div style={{ marginTop: theme.spacing(2), marginBottom: theme.spacing(2) }}>
-            <Typography
-                variant="h2"
-                style={{
-                    fontFamily: theme.typography.fontFamily,
-                    marginLeft: theme.spacing(2),
-                    marginRight: theme.spacing(2),
-                    color: '#515151',
-                }}
-            >
-                Lista de Clientes
-            </Typography>
-            {clientList.length === 0 ? (
-                <Typography
-                    variant="h5"
-                    style={{
-                        textAlign: 'center',
-                        marginTop: theme.spacing(4),
-                        color: theme.palette.text.secondary,
-                    }}
+            <Typography variant="h2" style={{ fontFamily: theme.typography.fontFamily, marginLeft: theme.spacing(2), marginRight: theme.spacing(2), color: '#515151' }}>Lista de Clientes</Typography>
+            <FormControl variant="outlined" style={{ marginTop: theme.spacing(2), marginLeft: theme.spacing(2), marginRight: theme.spacing(2), minWidth: 200 }}>
+                <InputLabel id="filter-select-label">Filtrar</InputLabel>
+                <Select
+                    labelId="filter-select-label"
+                    id="filter-select"
+                    value={filterOption}
+                    onChange={handleFilterChange}
+                    label="Filtrar"
                 >
-                    Nenhum cliente cadastrado
-                </Typography>
-            ) : (
-                clientList.map((client, index) => (
-                    <div
-                        key={client.id}
+                    <MenuItem value="">Listar todos os clientes</MenuItem>
+                    <MenuItem value="top10Quantidade">Listar os 10 clientes que mais consumiram</MenuItem>
+                    <MenuItem value="bottom10Quantidade">Listar os 10 clientes que menos consumiram</MenuItem>
+                    <MenuItem value="maisConsumiramPorValor">Listar os 5 clientes que mais consumiram em valor</MenuItem>
+                    <MenuItem value="listarPorGenero">Listar todos os clientes por gênero</MenuItem>
+                </Select>
+            </FormControl>
+            {filterOption === 'listarPorGenero' && (filteredClients as FilteredClientsByGender).map((group, index) => (
+                <div key={index}>
+                    <Typography
+                        variant="h5"
                         style={{
-                            marginBottom: theme.spacing(2),
-                            padding: theme.spacing(2),
-                            border: `1px solid ${theme.palette.divider}`,
-                            borderRadius: theme.shape.borderRadius,
+                            marginLeft: theme.spacing(2),
+                            marginTop: theme.spacing(2),
+                            color: theme.palette.primary.main,
                         }}
                     >
-                        <Typography variant="subtitle1">
-                            <strong>Nome:</strong> {client.nome}
-                        </Typography>
-                        <Typography variant="subtitle1">
-                            <strong>Sobrenome:</strong> {client.sobrenome}
-                        </Typography>
-                        <Typography variant="subtitle1">
-                            <strong>Telefone:</strong> {client.telefone}
-                        </Typography>
-                        <Typography variant="subtitle1">
-                            <strong>Email:</strong> {client.email}
-                        </Typography>
-                        <Typography variant="subtitle1">
-                            <strong>Gênero:</strong> {client.genero}
-                        </Typography>
-                        <div style={{ marginTop: theme.spacing(1) }}>
-                            <Button
-                                variant="contained"
-                                color="primary"
-                                onClick={() => handleEditButtonClick(client)}
-                                style={{ marginRight: '8px' }}
-                            >
-                                Editar
-                            </Button>
-                            <Button
-                                variant="contained"
-                                color="secondary"
-                                onClick={() => handleDeleteClient(client.id)}
-                            >
-                                Excluir
-                            </Button>
+                        {group.gender}
+                    </Typography>
+                    {group.clients.map((client, idx) => (
+                        <div
+                            key={`${group.gender}-${idx}`}
+                            style={{
+                                marginBottom: theme.spacing(2),
+                                padding: theme.spacing(2),
+                                border: `1px solid ${theme.palette.divider}`,
+                                borderRadius: theme.shape.borderRadius,
+                            }}
+                        >
+                            <Typography variant="subtitle1"><strong>Nome:</strong> {client.nome}</Typography>
+                            <Typography variant="subtitle1"><strong>Sobrenome:</strong> {client.sobrenome}</Typography>
+                            <Typography variant="subtitle1"><strong>Telefone:</strong> {client.telefone}</Typography>
+                            <Typography variant="subtitle1"><strong>Email:</strong> {client.email}</Typography>
+                            <Typography variant="subtitle1"><strong>Gênero:</strong> {client.genero}</Typography>
+                            <Typography variant="subtitle1"><strong>Produtos Consumidos:</strong> {client.produtosConsumidos?.map(produto => produto.produto.nome).join(', ')}</Typography>
+                            <Typography variant="subtitle1"><strong>Serviços Consumidos:</strong> {client.servicosConsumidos?.map(servico => servico.servico.nome).join(', ')}</Typography>
+                            <div style={{ marginTop: theme.spacing(1) }}>
+                                <Button variant="contained" color="primary" onClick={() => handleEditButtonClick(client)} style={{ marginRight: '8px' }}>
+                                    Editar
+                                </Button>
+                                <Button variant="contained" color="secondary" onClick={() => handleDeleteClient(client.id)}>
+                                    Excluir
+                                </Button>
+                            </div>
                         </div>
-                    </div>
-                ))
-            )}
+                    ))}
+                </div>
+            ))}
+
+            {filterOption !== 'listarPorGenero' && (filteredClients as Cliente[]).map((client, index) => (
+                <div key={client.id} style={{ marginBottom: theme.spacing(2), padding: theme.spacing(2), border: `1px solid ${theme.palette.divider}` }}>
+                    <Typography variant="subtitle1"><strong>Nome:</strong> {client.nome}</Typography>
+                    <Typography variant="subtitle1"><strong>Sobrenome:</strong> {client.sobrenome}</Typography>
+                    <Typography variant="subtitle1"><strong>Telefone:</strong> {client.telefone}</Typography>
+                    <Typography variant="subtitle1"><strong>Email:</strong> {client.email}</Typography>
+                    <Typography variant="subtitle1"><strong>Gênero:</strong> {client.genero}</Typography>
+                    <Typography variant="subtitle1"><strong>Produtos Consumidos:</strong> {client.produtosConsumidos?.map(produtoCliente => produtoCliente.produto.nome).join(', ')}</Typography>
+                    <Typography variant="subtitle1"><strong>Serviços Consumidos:</strong> {client.servicosConsumidos?.map(servicoCliente => servicoCliente.servico.nome).join(', ')}</Typography>
+                    <Button variant="outlined" color="primary" onClick={() => handleEditButtonClick(client)} style={{ marginRight: '8px' }}>Editar</Button>
+                    <Button variant="outlined" color="secondary" onClick={() => handleDeleteClient(client.id)}>Excluir</Button>
+                </div>
+            ))}
             <Dialog open={openEditDialog} onClose={handleEditDialogClose}>
                 <DialogContent>
                     {editClient && (
@@ -237,21 +363,55 @@ export default function ListaCliente(props: Props) {
                                         id="genero"
                                         name="genero"
                                         value={editClient.genero}
+                                        onChange={handleSelectChange}
                                     >
                                         <MenuItem value="Masculino">Masculino</MenuItem>
                                         <MenuItem value="Feminino">Feminino</MenuItem>
                                     </Select>
                                 </FormControl>
                             </Grid>
+                            <Grid item xs={12}>
+                                <Autocomplete
+                                    multiple
+                                    id="produtosConsumidos"
+                                    options={produtosOptions}
+                                    getOptionLabel={(option: Produto) => option.nome}
+                                    value={editClient.produtosConsumidos.map(pc => pc.produto)}
+                                    onChange={handleProdutosChange}
+                                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                                    renderInput={(params) => <TextField {...params} label="Produtos Consumidos" variant="outlined" />}
+                                    renderTags={(tagValue, getTagProps) =>
+                                        tagValue.map((option, index) => (
+                                            <Chip label={option.nome} {...getTagProps({ index })} />
+                                        ))
+                                    }
+                                />
+                            </Grid>
+                            <Grid item xs={12}>
+                                <Autocomplete
+                                    multiple
+                                    id="servicosConsumidos"
+                                    options={servicosOptions}
+                                    getOptionLabel={(option: Servico) => option.nome}
+                                    value={editClient.servicosConsumidos.map(sc => sc.servico)}
+                                    onChange={handleServicosChange}
+                                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                                    renderInput={(params) => <TextField {...params} label="Serviços Consumidos" variant="outlined" />}
+                                    renderTags={(tagValue, getTagProps) =>
+                                        tagValue.map((option, index) => (
+                                            <Chip label={option.nome} {...getTagProps({ index })} />
+                                        ))
+                                    }
+                                />
+                            </Grid>
                         </Grid>
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleEditDialogSave} color="primary">
-                        Salvar
-                    </Button>
+                    <Button onClick={handleEditDialogSave} color="primary">Salvar</Button>
                 </DialogActions>
             </Dialog>
         </div>
+
     );
 }
